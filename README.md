@@ -1,166 +1,241 @@
-# Self-Hosting SSL enabled N8N on a Linux Server
+# Self-Hosting SSL-enabled n8n on Google Cloud Free Tier with Docker & Caddy
 
-This guide provides step-by-step instructions to self-host [n8n](https://n8n.io), a free and open-source workflow automation tool, on a Linux server using Docker, Nginx, and Certbot for SSL with a custom domain name.
+This guide provides step-by-step instructions to self-host [n8n](https://n8n.io), a free and open-source workflow automation tool, on a **Google Cloud Platform (GCP) free-tier VM**, using **Docker**, **Docker Compose**, and **Caddy** as a reverse proxy for HTTPS, with or without a **custom domain name**.
 
+---
 
+## Step 1: Create a Free Tier VM Instance on Google Cloud
 
-## Step 1: Installing Docker
+1. Go to **Compute Engine > VM Instances** and click **Create Instance**.
+2. Choose:
+   - **Name**: `n8n-server`
+   - **Region**: `us-central1` (Free tier eligible)
+   - **Machine type**: `e2-micro`
+   - **Boot Disk**: Ubuntu 22.04 LTS (30 GB)
+3. Under **Firewall**, leave both boxes unchecked (we will configure it manually).
+4. Click **Create**.
 
-1. **Update the Package Index:**
-   ```bash
-   sudo apt update
+---
 
-2. **Install Docker:**
-    ```bash
-    sudo apt install docker.io
+## Step 2: Reserve a Static IP
 
-3.  **Start Docker:**
-    ```bash
-    sudo systemctl start docker
+1. Go to **VPC Network > IP Addresses**.
+2. Change the assigned ephemeral IP to a **Static IP** for your VM instance.
 
-4. **Enable Docker to Start at Boot:**
-    ```bash
-    sudo systemctl enable docker
+---
 
+## Step 3: Configure Firewall Rules
 
-## Step 2: Starting n8n in Docker
+1. Go to **VPC > Firewall rules** and create rules:
 
-Run the following command to start n8n in Docker. Replace your-domain.com with your actual domain name:
+| Name         | Protocol | Port | Source       | Target Tags  |
+|--------------|----------|------|--------------|--------------|
+| allow-http   | TCP      | 80   | 0.0.0.0/0    | n8n-server   |
+| allow-https  | TCP      | 443  | 0.0.0.0/0    | n8n-server   |
+| allow-n8n    | TCP      | 5678 | 0.0.0.0/0    | n8n-server *(optional)* |
 
-    ```bash
-    sudo docker run -d --restart unless-stopped -it \
-    --name n8n \
-    -p 5678:5678 \
-    -e N8N_HOST="your-domain.com" \
-    -e WEBHOOK_TUNNEL_URL="https://your-domain.com/" \
-    -e WEBHOOK_URL="https://your-domain.com/" \
-    -v ~/.n8n:/root/.n8n \
-    n8nio/n8n
-    ```
+2. Go to your VM → Click **Edit** → Add **Network tag**: `n8n-server`
 
-Or if you are using a subdomain, it should look like this:
+---
 
-    ```bash
-    sudo docker run -d --restart unless-stopped -it \
-    --name n8n \
-    -p 5678:5678 \
-    -e N8N_HOST="subdomain.your-domain.com" \
-    -e WEBHOOK_TUNNEL_URL="https://subdomain.your-domain.com/" \
-    -e WEBHOOK_URL="https://subdomain.your-domain.com/" \
-    -v ~/.n8n:/root/.n8n \
-    n8nio/n8n
-    ```
+## Step 4: Connect via SSH and Install Docker & Docker Compose
 
-
-This command does the following:
-
-- Downloads and runs the n8n Docker image.
-- Exposes n8n on port 5678.
-- Sets environment variables for the n8n host and webhook tunnel URL.
-- Mounts the n8n data directory for persistent storage.
-- After executing the command, n8n will be accessible on your-domain.com:5678.
-
-## Step 3: Installing Nginx
-
-Nginx is used as a reverse proxy to forward requests to n8n and handle SSL termination.
-
-1. **Install Nginx:**
-    ```bash
-    sudo apt install nginx
-
-## Step 4: Configuring Nginx
-
-Configure Nginx to reverse proxy the n8n web interface:
-
-1. **Create a New Nginx Configuration File:**
-    ```bash
-    sudo nano /etc/nginx/sites-available/n8n.conf
-
-2. **Paste the Following Configuration:**
-    ```bash
-    server {
-        listen 80;
-        server_name your-domain.com; // subdomain.your-domain.com if you have a subdomain
-
-        location / {
-            proxy_pass http://localhost:5678;
-            proxy_http_version 1.1;
-            chunked_transfer_encoding off;
-            proxy_buffering off;
-            proxy_cache off;
-            proxy_set_header Upgrade $http_upgrade;
-            proxy_set_header Connection "upgrade";
-        }
-    }
-    ```
-    Replace your-domain.com with your actual domain.
-
-3. **Enable the Configuration:**
-    ```bash
-    sudo ln -s /etc/nginx/sites-available/n8n.conf /etc/nginx/sites-enabled/
-
-    If you see the error saying /etc/nginx/sites-enabled/ doesn't exist. Create it by running: sudo mkdir /etc/nginx/sites-enabled/
-
-4. **Test the Nginx Configuration and Restart:**
-    ```bash
-    sudo nginx -t
-    sudo systemctl restart nginx
-    ```
-
-## Step 5: Setting up SSL with Certbot
-
-Certbot will obtain and install an SSL certificate from Let's Encrypt.
-
-1. **Install Certbot and the Nginx Plugin:**
-    ```bash
-    sudo apt install certbot python3-certbot-nginx
-
-2. **Obtain an SSL Certificate:**
-    ```bash
-    sudo certbot --nginx -d your-domain.com
-    // If you have a subdomain then it will be subdomain.your-domain.com
-
-Follow the on-screen instructions to complete the SSL setup.
-Once completed, n8n will be accessible securely over HTTPS at your-domain.com.
-
-IMPORTANT: Make sure you follow the above steps in order. Step 5 will modify your /etc/nginx/sites-available/n8n.conf file to something like this:
-![image](https://github.com/user-attachments/assets/344187ec-5bcf-4d97-ad35-21b6562182e5)
- 
-
-## How to update n8n:
-
-You can follow the instructions here to update the version: https://docs.n8n.io/hosting/installation/docker/#updating
-
-Important: Take a backup of ~/.n8n:/home/node/.n8n
-To create a backup, you can copy ~/.n8n:/home/node/.n8n to your local or another directory on the same VM even before deleting the container. And then, after updating and spinning up a new container, if you see the data getting lost, you can replace ~/.n8n:/home/node/.n8n with the one you saved earlier.
-
-Ensure that your n8n instance is using a persistent volume or a mapped directory for its data storage. This is crucial because the workflows, user accounts, and configurations are stored in the database file (typically database.sqlite), which should be located in a directory that remains intact even when the container is removed.
-In your docker-compose.yml, you should have something like this:
 ```bash
-volumes:
-- ~/.n8n:/home/node/.n8n
+# Update and install prerequisites
+sudo apt update && sudo apt install \
+    ca-certificates curl gnupg lsb-release -y
+
+# Add Docker GPG key and repository
+sudo mkdir -m 0755 -p /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | \
+    sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+
+echo \
+  "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] \
+  https://download.docker.com/linux/ubuntu \
+  $(lsb_release -cs) stable" | \
+  sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+
+# Install Docker & Docker Compose
+sudo apt update && sudo apt install \
+    docker-ce docker-ce-cli containerd.io \
+    docker-buildx-plugin docker-compose-plugin -y
+
+# Add your user to the Docker group
+sudo usermod -aG docker $USER
 ```
 
-This mapping ensures that the .n8n directory on your host machine is used for data storage, preserving your workflows and configurations across container updates.
+> ⚠️ **Important**: Log out and back in for Docker group changes to apply.
 
-When you stop and remove the n8n container, you are only deleting the container instance itself, not the data stored in the persistent volume. As long as the volume is correctly configured, your workflows and accounts should remain unaffected.
+---
 
-But to avoid any chance of data loss you should take a backup of ~/.n8n:/home/node/.n8n before removing the container.
+## Step 5: Choose Your Setup Type
 
-## Important Notes
-- Ensure your domain's DNS A record points to your server's IP address.
-- Allow ports 80 (HTTP), 443 (HTTPS), and 5678 (n8n) in your server's firewall.
-- Nginx handles SSL termination, so it forwards requests to the n8n instance over HTTP internally.
+You can run n8n in 3 ways:
 
-## Why Nginx and Certbot?
+---
 
-**Nginx:** It serves as a reverse proxy, forwarding client requests to n8n running on Docker. This setup enhances security, load balancing, and scalability.
+### 🔸 A) Using a **Subdomain** (e.g., `n8n.example.com`)
 
-**Certbot:** Certbot is a tool from the Electronic Frontier Foundation (EFF) that automates the process of obtaining and renewing SSL certificates from Let's Encrypt, a free and open Certificate Authority.
+1. Set an A record for `n8n.example.com` pointing to your VM's static IP.
 
-By using Nginx and Certbot, you ensure that your n8n instance is securely accessible over the internet with HTTPS.
+2. Create `docker-compose.yml`:
+
+```bash
+mkdir n8n && cd n8n
+nano docker-compose.yml
+```
+
+Paste this:
+
+```yaml
+version: '3.7'
+
+services:
+  n8n:
+    image: n8nio/n8n
+    restart: unless-stopped
+    environment:
+      - N8N_HOST=n8n.example.com
+      - N8N_PROTOCOL=https
+      - WEBHOOK_URL=https://n8n.example.com/
+    volumes:
+      - n8n_data:/home/node/.n8n
+
+  caddy:
+    image: caddy:latest
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - caddy_data:/data
+      - ./Caddyfile:/etc/caddy/Caddyfile
+    depends_on:
+      - n8n
+
+volumes:
+  n8n_data:
+  caddy_data:
+```
+
+Then create `Caddyfile`:
+
+```bash
+nano Caddyfile
+```
+
+Paste:
+
+```caddy
+n8n.example.com {
+    reverse_proxy n8n:5678
+}
+```
+
+Start:
+
+```bash
+docker compose up -d
+```
+
+Access at: `https://n8n.example.com`
+
+---
+
+### 🔸 B) Using a **Root Domain** (e.g., `example.com`)
+
+Just change `n8n.example.com` to `example.com` in all files above:
+
+- `N8N_HOST=example.com`
+- `WEBHOOK_URL=https://example.com/`
+- In `Caddyfile`: `example.com { ... }`
+
+Update DNS A record for `example.com` → Static IP
+
+Start with:
+
+```bash
+docker compose up -d
+```
+
+Access at: `https://example.com`
+
+---
+
+### 🔸 C) Without Any Domain (Access via IP and Port)
+
+Skip Caddy and use Docker only:
+
+```bash
+docker run -d --restart unless-stopped --name n8n \
+  -p 5678:5678 \
+  -v ~/.n8n:/home/node/.n8n \
+  n8nio/n8n
+```
+
+Then open:  
+```
+http://your-server-ip:5678
+```
+
+⚠️ This is NOT secure. Use only for **local testing** or behind a VPN.  
+To add HTTPS, use a domain with Caddy or Nginx.
+
+---
+
+## Optional: Remove 5678 Port from Firewall (After HTTPS Setup)
+
+```bash
+gcloud compute firewall-rules delete allow-n8n
+```
+
+---
+
+## Backup & Update
+
+Backup:
+
+```bash
+cp -r ~/.docker/volumes/n8n_n8n_data/_data ~/n8n-backup
+```
+
+Update:
+
+```bash
+docker compose pull
+docker compose down
+docker compose up -d
+```
+
+---
 
 ## Troubleshooting
 
-If you encounter issues with Nginx, check the logs located at /var/log/nginx/error.log for more details.
-For Docker-related issues, ensure the Docker service is running: sudo systemctl status docker.
+- Caddy logs: `docker logs <caddy-container-id>`
+- n8n logs: `docker logs <n8n-container-id>`
+- Restart containers: `docker compose restart`
+
+---
+
+## Why Use Caddy?
+
+- 📦 Auto HTTPS with Let's Encrypt
+- 🧠 Simple reverse proxy config
+- 🔁 Automatic renewals
+- 🛡 Modern & fast
+
+---
+
+## Final Tips
+
+- ✅ Use a domain for production (subdomain or root)
+- 🔐 Never expose port 5678 directly in production
+- 💾 Always backup workflows before upgrades
+
+---
+
+## Links
+
+- n8n docs: https://docs.n8n.io/
+- Caddy docs: https://caddyserver.com/docs/
