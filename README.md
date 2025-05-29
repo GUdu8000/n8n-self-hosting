@@ -1,241 +1,199 @@
-# Self-Hosting SSL-enabled n8n on Google Cloud Free Tier with Docker & Caddy
+# 🚀 Secure n8n on GCP Free Tier: A Student's Quick Start Guide
 
-This guide provides step-by-step instructions to self-host [n8n](https://n8n.io), a free and open-source workflow automation tool, on a **Google Cloud Platform (GCP) free-tier VM**, using **Docker**, **Docker Compose**, and **Caddy** as a reverse proxy for HTTPS, with or without a **custom domain name**.
-
----
-
-## Step 1: Create a Free Tier VM Instance on Google Cloud
-
-1. Go to **Compute Engine > VM Instances** and click **Create Instance**.
-2. Choose:
-   - **Name**: `n8n-server`
-   - **Region**: `us-central1` (Free tier eligible)
-   - **Machine type**: `e2-micro`
-   - **Boot Disk**: Ubuntu 22.04 LTS (30 GB)
-3. Under **Firewall**, leave both boxes unchecked (we will configure it manually).
-4. Click **Create**.
+Deploy [n8n](https://n8n.io) on Google Cloud Free Tier using Docker and Caddy with HTTPS & Auto-Start.
 
 ---
 
-## Step 2: Reserve a Static IP
+## 📋 Requirements Checklist
 
-1. Go to **VPC Network > IP Addresses**.
-2. Change the assigned ephemeral IP to a **Static IP** for your VM instance.
-
----
-
-## Step 3: Configure Firewall Rules
-
-1. Go to **VPC > Firewall rules** and create rules:
-
-| Name         | Protocol | Port | Source       | Target Tags  |
-|--------------|----------|------|--------------|--------------|
-| allow-http   | TCP      | 80   | 0.0.0.0/0    | n8n-server   |
-| allow-https  | TCP      | 443  | 0.0.0.0/0    | n8n-server   |
-| allow-n8n    | TCP      | 5678 | 0.0.0.0/0    | n8n-server *(optional)* |
-
-2. Go to your VM → Click **Edit** → Add **Network tag**: `n8n-server`
+| ✅ Required             | Description                                        |
+|------------------------|----------------------------------------------------|
+| GCP Account            | Sign up at [console.cloud.google.com](https://console.cloud.google.com) |
+| Billing Enabled        | Required for Free Tier usage                      |
+| Free Tier VM           | `e2-micro`, 30GB standard persistent disk         |
+| Domain Name            | You must own one (e.g., `yourdomain.com`)         |
+| Subdomain (for n8n)    | E.g., `n8n.yourdomain.com`                         |
+| Linux Basics           | Comfortable using terminal & SSH                  |
 
 ---
 
-## Step 4: Connect via SSH and Install Docker & Docker Compose
+## ☁️ Phase 1: Google Cloud VM Setup
+
+### 1.1 VM Instance Configuration
+
+| Setting      | Value                         |
+|--------------|-------------------------------|
+| Name         | `n8n-server`                  |
+| Region       | `us-west1` / `us-central1`    |
+| Machine Type | `e2-micro`                    |
+| OS           | `Ubuntu 22.04 LTS`            |
+| Disk         | 30GB Standard Persistent Disk |
+| Firewall     | Leave HTTP/HTTPS unchecked    |
+
+> 🔧 After creation, reserve a **Static IP** under `VPC Network > IP addresses`.
+
+---
+
+### 1.2 Firewall Rules
+
+| Rule Name            | Port | Protocol | Source      | Purpose                     |
+|----------------------|------|----------|-------------|-----------------------------|
+| `n8n-allow-http`     | 80   | TCP      | `0.0.0.0/0` | Allow HTTP traffic          |
+| `n8n-allow-https`    | 443  | TCP      | `0.0.0.0/0` | Allow HTTPS traffic         |
+| `n8n-allow-direct-test` | 5678 | TCP | `0.0.0.0/0` | TEMPORARY: Direct access to n8n |
+
+> ⚠️ Delete the `5678` rule after setting up Caddy SSL.
+
+---
+
+## 🐳 Phase 2: Install Docker
 
 ```bash
-# Update and install prerequisites
-sudo apt update && sudo apt install \
-    ca-certificates curl gnupg lsb-release -y
+sudo apt update
+sudo apt install ca-certificates curl gnupg lsb-release -y
 
-# Add Docker GPG key and repository
 sudo mkdir -m 0755 -p /etc/apt/keyrings
 curl -fsSL https://download.docker.com/linux/ubuntu/gpg | \
-    sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+  sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
 
 echo \
   "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] \
-  https://download.docker.com/linux/ubuntu \
-  $(lsb_release -cs) stable" | \
+  https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | \
   sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
 
-# Install Docker & Docker Compose
-sudo apt update && sudo apt install \
-    docker-ce docker-ce-cli containerd.io \
-    docker-buildx-plugin docker-compose-plugin -y
-
-# Add your user to the Docker group
+sudo apt update
+sudo apt install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin -y
 sudo usermod -aG docker $USER
 ```
 
-> ⚠️ **Important**: Log out and back in for Docker group changes to apply.
+> 🔁 Log out and back in after adding yourself to the Docker group.
 
 ---
 
-## Step 5: Choose Your Setup Type
+## ⚙️ Phase 3: Run n8n with Docker
 
-You can run n8n in 3 ways:
+```bash
+# Create volume for data persistence
+docker volume create n8n_data
+
+# Start container
+docker run -d \
+  --name n8n \
+  --restart unless-stopped \
+  -p 5678:5678 \
+  -v n8n_data:/home/node/.n8n \
+  -e N8N_HOST="n8n.yourdomain.com" \
+  -e N8N_PROTOCOL="https" \
+  -e WEBHOOK_URL="https://n8n.yourdomain.com/" \
+  n8nio/n8n
+```
+
+```bash
+# Confirm it's running
+docker ps
+
+# If needed
+docker logs n8n
+docker start n8n
+```
 
 ---
 
-### 🔸 A) Using a **Subdomain** (e.g., `n8n.example.com`)
+## 🌐 Phase 4: DNS Configuration
 
-1. Set an A record for `n8n.example.com` pointing to your VM's static IP.
+Update your domain registrar with the following:
 
-2. Create `docker-compose.yml`:
+| Record Type | Name (Subdomain) | Value               | TTL  |
+|-------------|------------------|---------------------|------|
+| A           | `n8n`            | Your Static IP from GCP | Auto |
 
-```bash
-mkdir n8n && cd n8n
-nano docker-compose.yml
-```
+If using **Cloudflare**, set Proxy to "Proxied" ✅.
 
-Paste this:
+Check propagation: [dnschecker.org](https://dnschecker.org)
 
-```yaml
-version: '3.7'
+---
 
-services:
-  n8n:
-    image: n8nio/n8n
-    restart: unless-stopped
-    environment:
-      - N8N_HOST=n8n.example.com
-      - N8N_PROTOCOL=https
-      - WEBHOOK_URL=https://n8n.example.com/
-    volumes:
-      - n8n_data:/home/node/.n8n
-
-  caddy:
-    image: caddy:latest
-    restart: unless-stopped
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - caddy_data:/data
-      - ./Caddyfile:/etc/caddy/Caddyfile
-    depends_on:
-      - n8n
-
-volumes:
-  n8n_data:
-  caddy_data:
-```
-
-Then create `Caddyfile`:
+## 🔒 Phase 5: Install Caddy (HTTPS Proxy)
 
 ```bash
-nano Caddyfile
+sudo apt install -y debian-keyring debian-archive-keyring apt-transport-https
+curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | \
+  sudo gpg --dearmor -o /usr/share/keyrings/caddy-archive-keyring.gpg
+
+echo "deb [signed-by=/usr/share/keyrings/caddy-archive-keyring.gpg] \
+https://dl.cloudsmith.io/public/caddy/stable/deb/debian $(lsb_release -sc) main" | \
+  sudo tee /etc/apt/sources.list.d/caddy-stable.list
+
+sudo apt update
+sudo apt install caddy -y
+```
+
+---
+
+### 5.1 Configure Caddyfile
+
+```bash
+sudo nano /etc/caddy/Caddyfile
 ```
 
 Paste:
 
-```caddy
-n8n.example.com {
-    reverse_proxy n8n:5678
+```
+n8n.yourdomain.com {
+    reverse_proxy localhost:5678
 }
 ```
 
-Start:
+Save (Ctrl + O, Enter, Ctrl + X) and restart:
 
 ```bash
-docker compose up -d
+sudo systemctl enable caddy
+sudo systemctl restart caddy
 ```
 
-Access at: `https://n8n.example.com`
-
----
-
-### 🔸 B) Using a **Root Domain** (e.g., `example.com`)
-
-Just change `n8n.example.com` to `example.com` in all files above:
-
-- `N8N_HOST=example.com`
-- `WEBHOOK_URL=https://example.com/`
-- In `Caddyfile`: `example.com { ... }`
-
-Update DNS A record for `example.com` → Static IP
-
-Start with:
+Check logs:
 
 ```bash
-docker compose up -d
+sudo journalctl -u caddy --since "5 minutes ago" --no-pager
 ```
 
-Access at: `https://example.com`
+Look for: ✅ `certificate obtained successfully`
 
 ---
 
-### 🔸 C) Without Any Domain (Access via IP and Port)
-
-Skip Caddy and use Docker only:
+## 🔁 Phase 6: Reboot Test
 
 ```bash
-docker run -d --restart unless-stopped --name n8n \
-  -p 5678:5678 \
-  -v ~/.n8n:/home/node/.n8n \
-  n8nio/n8n
+sudo shutdown now
 ```
 
-Then open:  
-```
-http://your-server-ip:5678
-```
-
-⚠️ This is NOT secure. Use only for **local testing** or behind a VPN.  
-To add HTTPS, use a domain with Caddy or Nginx.
-
----
-
-## Optional: Remove 5678 Port from Firewall (After HTTPS Setup)
+After VM restarts:
 
 ```bash
-gcloud compute firewall-rules delete allow-n8n
+# SSH back in
+docker ps        # n8n should be running
+systemctl status caddy  # Caddy should be active
 ```
 
 ---
 
-## Backup & Update
+## ✅ Final Steps
 
-Backup:
-
-```bash
-cp -r ~/.docker/volumes/n8n_n8n_data/_data ~/n8n-backup
-```
-
-Update:
-
-```bash
-docker compose pull
-docker compose down
-docker compose up -d
-```
+- 🧪 Visit `https://n8n.yourdomain.com/` in browser
+- 🔒 Confirm HTTPS & n8n UI loads
+- 🧹 Delete firewall rule for port `5678`
 
 ---
 
-## Troubleshooting
+## 🎉 Success!
 
-- Caddy logs: `docker logs <caddy-container-id>`
-- n8n logs: `docker logs <n8n-container-id>`
-- Restart containers: `docker compose restart`
-
----
-
-## Why Use Caddy?
-
-- 📦 Auto HTTPS with Let's Encrypt
-- 🧠 Simple reverse proxy config
-- 🔁 Automatic renewals
-- 🛡 Modern & fast
+| ✅ Setup Complete For | ✔ |
+|----------------------|---|
+| Docker & n8n         | ✅ |
+| HTTPS via Caddy      | ✅ |
+| Auto-Start on Reboot | ✅ |
+| GCP Free Tier        | ✅ |
 
 ---
 
-## Final Tips
-
-- ✅ Use a domain for production (subdomain or root)
-- 🔐 Never expose port 5678 directly in production
-- 💾 Always backup workflows before upgrades
-
----
-
-## Links
-
-- n8n docs: https://docs.n8n.io/
-- Caddy docs: https://caddyserver.com/docs/
+> 💡 **Tip:** Want to backup workflows or enable basic auth for security? Let me know — I’ll help you enhance this setup!
