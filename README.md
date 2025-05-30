@@ -22,16 +22,9 @@ A complete guide to deploy n8n automation platform using Docker with automatic H
 ### Step 1: Update System & Install Docker
 
 ```bash
-# Update package index
 sudo apt update
-
-# Install Docker
 sudo apt install -y docker.io
-
-# Enable Docker service
 sudo systemctl enable docker
-
-# Add current user to docker group (requires logout/login)
 sudo usermod -aG docker $(whoami)
 ```
 
@@ -40,7 +33,6 @@ sudo usermod -aG docker $(whoami)
 ### Step 2: Create Persistent Data Volume
 
 ```bash
-# Create Docker volume for n8n data persistence
 sudo docker volume create n8n_data
 ```
 
@@ -65,13 +57,8 @@ sudo docker run -d \
 #### 4.1 Install Caddy Web Server
 
 ```bash
-# Install dependencies
 sudo apt install -y debian-keyring debian-archive-keyring apt-transport-https
-
-# Add Caddy repository
 curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | sudo tee /etc/apt/sources.list.d/caddy-stable.list
-
-# Update package index and install Caddy
 sudo apt update
 sudo apt install -y caddy
 ```
@@ -97,10 +84,7 @@ n8n.yourdomain.com {
 #### 4.3 Start Caddy Service
 
 ```bash
-# Validate configuration
 sudo caddy validate --config /etc/caddy/Caddyfile
-
-# Enable and start Caddy service
 sudo systemctl enable caddy
 sudo systemctl start caddy
 sudo systemctl restart caddy
